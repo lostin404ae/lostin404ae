@@ -1,36 +1,474 @@
-# This is a basic workflow to help you get started with Actions
 
-name: CI
+import React, { useState, useMemo } from 'react';
+import { 
+  LayoutGrid, 
+  Calendar as CalendarIcon, 
+  BarChart3, 
+  Sparkles, 
+  Plus, 
+  ChevronRight, 
+  ChevronLeft,
+  Instagram, 
+  Pin,
+  CheckCircle2,
+  Circle,
+  MessageSquare,
+  TrendingUp,
+  BrainCircuit,
+  X,
+  RefreshCw,
+  Link as LinkIcon,
+  Share2,
+  Eye,
+  Heart,
+  Bookmark,
+  ExternalLink,
+  Youtube,
+  Music,
+  Check,
+  Facebook,
+  MessageCircle,
+  Wand2,
+  Globe,
+  ShieldCheck,
+  Server
+} from 'lucide-react';
+import { TaskStatus, ContentTask, SocialAccount } from './types';
+import { INITIAL_TASKS } from './constants';
+import { getCreativeDirection, generateAiCaption } from './services/geminiService';
 
-# Controls when the workflow will run
-on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+const App: React.FC = () => {
+  const [tasks, setTasks] = useState<ContentTask[]>(INITIAL_TASKS.map(t => ({
+    ...t,
+    performance: t.performance ? {
+      ...t.performance,
+      shares: Math.floor(t.performance.views * 0.02),
+      comments: Math.floor(t.performance.likes * 0.1),
+      reach: t.performance.views * 1.2,
+      engagementRate: 8.4,
+      lastSynced: new Date().toISOString()
+    } : undefined
+  })));
+  
+  const [activeTab, setActiveTab] = useState<'kanban' | 'calendar' | 'analytics' | 'accounts'>('kanban');
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isCaptionLoading, setIsCaptionLoading] = useState<string | null>(null);
+  const [aiHooks, setAiHooks] = useState<string[]>([]);
+  const [selectedTask, setSelectedTask] = useState<ContentTask | null>(null);
+  const [currentDate, setCurrentDate] = useState(new Date(2024, 5, 1));
+  const [connectingPlatform, setConnectingPlatform] = useState<string | null>(null);
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
+  const [socialAccounts, setSocialAccounts] = useState<SocialAccount[]>([
+    { platform: 'Instagram', username: 'lostin__404', avatar: 'https://api.dicebear.com/7.x/shapes/svg?seed=lostin1', followers: 15400, connected: true },
+    { platform: 'TikTok', username: 'lostin__404', avatar: 'https://api.dicebear.com/7.x/shapes/svg?seed=lostin2', followers: 92100, connected: true },
+    { platform: 'Pinterest', username: 'lostin__404', avatar: 'https://api.dicebear.com/7.x/shapes/svg?seed=lostin3', followers: 3200, connected: false },
+    { platform: 'YouTube', username: 'lostin__404', avatar: 'https://api.dicebear.com/7.x/shapes/svg?seed=lostin4', followers: 8900, connected: false }
+  ]);
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
-jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
-    runs-on: ubuntu-latest
+  const totalViews = useMemo(() => tasks.reduce((acc, t) => acc + (t.performance?.views || 0), 0), [tasks]);
+  const avgEngagement = useMemo(() => {
+    const published = tasks.filter(t => t.performance);
+    return published.length ? (published.reduce((acc, t) => acc + (t.performance?.engagementRate || 0), 0) / published.length).toFixed(1) : 0;
+  }, [tasks]);
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
-    steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+  const handleSyncInsights = () => {
+    setIsSyncing(true);
+    setTimeout(() => setIsSyncing(false), 1500);
+  };
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
+  const handleConnectAccount = (platform: string) => {
+    setConnectingPlatform(platform);
+    setTimeout(() => {
+      setSocialAccounts(prev => prev.map(acc => 
+        acc.platform === platform ? { ...acc, connected: true } : acc
+      ));
+      setConnectingPlatform(null);
+    }, 2000);
+  };
 
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
-        run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+  const toggleChecklist = (taskId: string, itemId: string) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const newChecklist = t.checklist.map(item => item.id === itemId ? { ...item, completed: !item.completed } : item);
+        return { ...t, checklist: newChecklist };
+      }
+      return t;
+    }));
+  };
+
+  const handleAiConsult = async () => {
+    setIsAiLoading(true);
+    const notes = tasks.filter(t => t.performance?.notes).map(t => t.performance!.notes);
+    const result = await getCreativeDirection(notes);
+    setAiHooks(result.hooks);
+    setIsAiLoading(false);
+  };
+
+  const handleGenerateCaption = async (e: React.MouseEvent, task: ContentTask) => {
+    e.stopPropagation();
+    setIsCaptionLoading(task.id);
+    const caption = await generateAiCaption(task.title, task.description, task.platform);
+    
+    setTasks(prev => prev.map(t => 
+      t.id === task.id ? { ...t, description: `${t.description}\n\nGenerated Caption:\n${caption}` } : t
+    ));
+    
+    setTasks(prev => prev.map(t => {
+      if (t.id === task.id) {
+        const newChecklist = t.checklist.map(item => 
+          item.label.toLowerCase().includes('caption') ? { ...item, completed: true } : item
+        );
+        return { ...t, checklist: newChecklist };
+      }
+      return t;
+    }));
+
+    setIsCaptionLoading(null);
+  };
+
+  const calendarDays = useMemo(() => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const days = [];
+    const offset = firstDay === 0 ? 6 : firstDay - 1;
+    for (let i = 0; i < offset; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(new Date(year, month, i));
+    return days;
+  }, [currentDate]);
+
+  const getPlatformIcon = (platform: string) => {
+    switch (platform) {
+      case 'Instagram': return <Instagram size={14} />;
+      case 'Pinterest': return <Pin size={14} />;
+      case 'YouTube': return <Youtube size={14} />;
+      case 'TikTok': return <Music size={14} />;
+      default: return <Globe size={14} />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#050505] text-[#e5e5e5] select-none">
+      {/* Sidebar */}
+      <aside className="fixed left-0 top-0 h-full w-20 md:w-64 bg-[#0d0d0d] border-r border-[#1a1a1a] z-50 flex flex-col py-8">
+        <div className="px-6 mb-12 flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 border-2 border-white rounded flex items-center justify-center">
+              <span className="text-[10px] font-bold">404</span>
+            </div>
+            <span className="hidden md:block font-extrabold text-2xl tracking-[0.1em] text-white uppercase">LOSTIN404</span>
+          </div>
+          <p className="hidden md:block text-[9px] text-zinc-500 uppercase tracking-[0.3em] font-semibold ml-10">Stay connected</p>
+        </div>
+
+        <nav className="flex-1 px-4 space-y-2">
+          <NavItem active={activeTab === 'kanban'} onClick={() => setActiveTab('kanban')} icon={<LayoutGrid size={22}/>} label="Command Center" />
+          <NavItem active={activeTab === 'calendar'} onClick={() => setActiveTab('calendar')} icon={<CalendarIcon size={22}/>} label="Drop Schedule" />
+          <NavItem active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')} icon={<BarChart3 size={22}/>} label="Visual Insights" />
+          <NavItem active={activeTab === 'accounts'} onClick={() => setActiveTab('accounts')} icon={<LinkIcon size={22}/>} label="Platforms" />
+        </nav>
+
+        <div className="px-4 mt-auto">
+          <div className="flex flex-wrap gap-4 px-2 mb-6 justify-center md:justify-start opacity-40 hover:opacity-100 transition-opacity">
+            <Facebook size={16} className="hover:text-white cursor-pointer" />
+            <Instagram size={16} className="hover:text-white cursor-pointer" />
+            <MessageCircle size={16} className="hover:text-white cursor-pointer" />
+            <span className="text-[10px] font-mono tracking-tighter">lostin__404</span>
+          </div>
+          <button onClick={handleAiConsult} className="w-full group flex items-center gap-4 px-4 py-4 bg-zinc-900/30 border border-zinc-800 rounded-2xl hover:border-white transition-all">
+            <div className={`p-2 rounded-lg bg-zinc-800 ${isAiLoading ? 'animate-pulse' : ''}`}><BrainCircuit size={18} className="text-white" /></div>
+            <div className="hidden md:block text-left">
+              <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Architect</p>
+              <p className="text-sm font-semibold text-white uppercase">Creative Director</p>
+            </div>
+          </button>
+        </div>
+      </aside>
+
+      <main className="flex-1 ml-20 md:ml-64 p-4 md:p-8">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+          <div>
+            <h1 className="text-4xl font-extrabold text-white mb-2 uppercase tracking-tight">Workflow Architect</h1>
+            <p className="text-zinc-500 font-semibold tracking-wide">Manager: <span className="text-white font-bold">@lostin__404</span></p>
+          </div>
+          <div className="flex gap-4">
+            <StatCard label="Total Reach" value={`${(totalViews * 1.2 / 1000).toFixed(1)}K`} />
+            <StatCard label="Avg Engagement" value={`${avgEngagement}%`} />
+            <button onClick={handleSyncInsights} className={`bg-[#111] border border-[#222] text-white px-5 py-4 rounded-2xl flex items-center gap-2 font-bold hover:bg-white hover:text-black transition-all ${isSyncing ? 'opacity-50' : ''}`}>
+              <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
+              {isSyncing ? 'Syncing...' : 'Refresh Hub'}
+            </button>
+          </div>
+        </header>
+
+        {activeTab === 'kanban' && (
+          <div className="flex gap-6 overflow-x-auto pb-8 custom-scrollbar h-[calc(100vh-280px)]">
+            {Object.values(TaskStatus).map((status) => (
+              <div key={status} className="kanban-column flex flex-col h-full bg-[#0d0d0d] rounded-2xl border border-[#1a1a1a]">
+                <div className="p-4 border-b border-[#1a1a1a] flex items-center justify-between sticky top-0 bg-[#0d0d0d] z-10 rounded-t-2xl">
+                  <h3 className="font-bold text-xs uppercase tracking-[0.1em] text-zinc-500">{status}</h3>
+                  <span className="text-xs bg-zinc-800 text-zinc-400 px-2 py-0.5 rounded-full font-mono">{tasks.filter(t => t.status === status).length}</span>
+                </div>
+                <div className="flex-1 p-3 space-y-3 overflow-y-auto custom-scrollbar">
+                  {tasks.filter(t => t.status === status).map(task => (
+                    <div key={task.id} onClick={() => setSelectedTask(task)} className="bg-[#141414] p-4 rounded-xl border border-[#222] hover:border-white transition-all cursor-pointer group relative">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                           {getPlatformIcon(task.platform)}
+                           <span className="text-[9px] font-bold uppercase tracking-widest text-zinc-400">lostin__404</span>
+                        </div>
+                        {task.performance && <TrendingUp size={14} className="text-white" />}
+                      </div>
+                      <h4 className="font-semibold text-white mb-3 line-clamp-2 leading-tight uppercase text-sm">{task.title}</h4>
+                      
+                      {status === TaskStatus.CAPTIONING && (
+                        <button 
+                          onClick={(e) => handleGenerateCaption(e, task)}
+                          className="w-full mb-3 py-2 bg-white/5 border border-white/10 rounded-lg flex items-center justify-center gap-2 text-[10px] uppercase font-bold text-white hover:bg-white hover:text-black transition-all group/btn disabled:opacity-50"
+                          disabled={isCaptionLoading === task.id}
+                        >
+                          {isCaptionLoading === task.id ? <RefreshCw size={12} className="animate-spin" /> : <Wand2 size={12} />}
+                          AI Caption
+                        </button>
+                      )}
+
+                      <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+                        <div className="flex items-center gap-2"><CheckCircle2 size={12} className="text-zinc-400" /> {task.checklist.filter(c => c.completed).length}/5</div>
+                        {task.performance && <div className="text-white font-bold">{(task.performance.views/1000).toFixed(1)}K</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {activeTab === 'accounts' && (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {socialAccounts.map(acc => (
+                <div key={acc.platform} className="bg-[#0d0d0d] border border-[#1a1a1a] p-6 rounded-3xl relative overflow-hidden group hover:border-white/50 transition-all">
+                  <div className="absolute top-0 right-0 p-4">
+                    {acc.connected ? 
+                      <span className="flex items-center gap-1 text-[10px] font-bold text-white uppercase bg-white/10 px-2 py-1 rounded">
+                        <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></div> Active
+                      </span> :
+                      <span className="text-[10px] font-bold text-zinc-500 uppercase bg-zinc-800 px-2 py-1 rounded">Offline</span>
+                    }
+                  </div>
+                  <div className="flex items-center gap-4 mb-6">
+                    <img src={acc.avatar} className="w-16 h-16 rounded-2xl bg-zinc-900 border border-zinc-800 object-cover" />
+                    <div>
+                      <h3 className="font-extrabold text-white text-xl uppercase tracking-tight">{acc.username}</h3>
+                      <div className="flex items-center gap-1.5 opacity-60">
+                         {getPlatformIcon(acc.platform)}
+                         <p className="text-[10px] font-bold uppercase tracking-widest">{acc.platform}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => !acc.connected && handleConnectAccount(acc.platform)}
+                    disabled={connectingPlatform === acc.platform}
+                    className={`w-full py-4 rounded-xl font-extrabold uppercase transition-all border flex items-center justify-center gap-2 tracking-widest ${
+                      acc.connected 
+                        ? 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:bg-white hover:text-black hover:border-white' 
+                        : 'bg-white border-white text-black hover:bg-black hover:text-white'
+                    }`}
+                  >
+                    {connectingPlatform === acc.platform ? <RefreshCw size={16} className="animate-spin" /> : (acc.connected ? 'Manage Hub' : 'Sync Port')}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Domain Connectivity Section */}
+            <div className="bg-[#0d0d0d] border border-zinc-800 rounded-[40px] p-8 md:p-12 overflow-hidden relative group">
+              <div className="absolute -right-20 -top-20 w-64 h-64 bg-white/5 rounded-full blur-3xl group-hover:bg-white/10 transition-all"></div>
+              <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3 bg-white text-black rounded-2xl"><Globe size={24} /></div>
+                    <h2 className="text-3xl font-extrabold uppercase tracking-tight">Domain Architect</h2>
+                  </div>
+                  <p className="text-zinc-500 font-semibold max-w-lg">
+                    Connect your custom LOSTIN404 portal to your professional domain. Ensure global accessibility for your visual archives.
+                  </p>
+                </div>
+                <div className="w-full md:w-auto space-y-4">
+                   <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-4 flex items-center justify-between gap-8">
+                      <div className="flex items-center gap-3">
+                        <Server size={18} className="text-zinc-500" />
+                        <div>
+                          <p className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest">Target Domain</p>
+                          <p className="text-sm font-bold text-white">lostin404.com</p>
+                        </div>
+                      </div>
+                      <span className="px-3 py-1 bg-green-500/10 text-green-500 text-[10px] font-extrabold rounded-full flex items-center gap-1 uppercase">
+                        <ShieldCheck size={12} /> Connected
+                      </span>
+                   </div>
+                   <button className="w-full py-4 bg-white hover:bg-zinc-200 text-black font-extrabold rounded-2xl transition-all uppercase tracking-widest flex items-center justify-center gap-2">
+                     Configure DNS Records <ExternalLink size={16} />
+                   </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Calendar and Analytics follow original logic with updated typography */}
+        {activeTab === 'calendar' && (
+          <div className="bg-[#0d0d0d] border border-[#1a1a1a] rounded-3xl p-6 h-[calc(100vh-280px)] flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-extrabold text-white flex items-center gap-3 uppercase tracking-tighter">
+                <div className="w-6 h-6 border-2 border-white rounded flex items-center justify-center"><span className="text-[8px] font-bold">M</span></div>
+                {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+              </h2>
+              <div className="flex gap-2">
+                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() - 1)))} className="p-2 hover:bg-white hover:text-black rounded-xl border border-[#222] transition-colors"><ChevronLeft size={20} /></button>
+                <button onClick={() => setCurrentDate(new Date(currentDate.setMonth(currentDate.getMonth() + 1)))} className="p-2 hover:bg-white hover:text-black rounded-xl border border-[#222] transition-colors"><ChevronRight size={20} /></button>
+              </div>
+            </div>
+            <div className="flex-1 grid grid-cols-7 gap-px bg-[#1a1a1a] border border-[#1a1a1a] rounded-2xl overflow-hidden">
+              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+                <div key={d} className="bg-[#0d0d0d] p-3 text-center text-[10px] font-extrabold text-zinc-600 uppercase tracking-widest">{d}</div>
+              ))}
+              {calendarDays.map((day, i) => (
+                <div key={i} className={`bg-[#0d0d0d] p-2 min-h-[100px] transition-colors ${day ? 'hover:bg-[#111]' : 'opacity-10'}`}>
+                  {day && (
+                    <>
+                      <span className={`text-[10px] font-mono ${day.toDateString() === new Date().toDateString() ? 'text-white font-extrabold bg-zinc-800 px-1 rounded' : 'text-zinc-700'}`}>{day.getDate()}</span>
+                      <div className="mt-2 space-y-1">
+                        {tasks.filter(t => t.scheduledDate === day.toISOString().split('T')[0]).map(task => (
+                          <div key={task.id} onClick={() => setSelectedTask(task)} className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[9px] text-zinc-300 font-bold truncate cursor-pointer hover:bg-white hover:text-black flex items-center gap-1 transition-all uppercase">
+                             {getPlatformIcon(task.platform)}
+                             <span className="truncate">{task.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              <InsightMetric icon={<Eye className="text-white"/>} label="Visual Impressions" value={(totalViews * 1.5).toLocaleString()} change="+12.4%" />
+              <InsightMetric icon={<Heart className="text-white"/>} label="Impact" value={tasks.reduce((a, b) => a + (b.performance?.likes || 0), 0).toLocaleString()} change="+5.2%" />
+              <InsightMetric icon={<Share2 className="text-white"/>} label="Velocity" value={tasks.reduce((a, b) => a + (b.performance?.shares || 0), 0).toLocaleString()} change="+18.1%" />
+              <InsightMetric icon={<Bookmark className="text-white"/>} label="Archives" value={tasks.reduce((a, b) => a + (b.performance?.saves || 0), 0).toLocaleString()} change="+2.0%" />
+            </div>
+
+            <div className="bg-[#0d0d0d] border border-[#1a1a1a] rounded-3xl overflow-hidden shadow-2xl">
+              <div className="p-6 border-b border-[#1a1a1a] flex justify-between items-center">
+                <h3 className="font-bold text-lg uppercase tracking-tight">Top Performance Archives</h3>
+              </div>
+              <table className="w-full text-left">
+                <thead className="bg-[#050505] text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+                  <tr>
+                    <th className="px-6 py-4">Visual Concept</th>
+                    <th className="px-6 py-4">Engagement</th>
+                    <th className="px-6 py-4">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1a1a1a]">
+                  {tasks.filter(t => t.performance).map(task => (
+                    <tr key={task.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 border border-zinc-800 rounded-lg flex-shrink-0 bg-zinc-900 flex items-center justify-center font-bold text-[10px]">404</div>
+                          <p className="font-semibold text-sm text-white uppercase">{task.title}</p>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 font-mono text-white text-sm">{task.performance?.engagementRate}%</td>
+                      <td className="px-6 py-4"><span className="px-2 py-1 bg-white text-black text-[10px] font-extrabold rounded uppercase">Trending</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Task Modal and AI Drawer remain consistent with new font and branding */}
+      {selectedTask && (
+        <div className="fixed inset-0 bg-black/95 backdrop-blur-xl z-[100] flex items-center justify-center p-4">
+          <div className="bg-[#0d0d0d] w-full max-w-4xl rounded-[40px] border border-zinc-800 shadow-2xl flex flex-col md:flex-row max-h-[90vh] overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-8 md:p-12 border-r border-zinc-800 custom-scrollbar">
+              <button onClick={() => setSelectedTask(null)} className="p-2 -ml-2 mb-8 hover:bg-white/10 rounded-full transition-colors"><ChevronLeft size={24}/></button>
+              <input value={selectedTask.title} onChange={(e) => setTasks(prev => prev.map(t => t.id === selectedTask.id ? {...t, title: e.target.value} : t))} className="bg-transparent text-4xl font-extrabold text-white w-full border-none focus:ring-0 mb-6 p-0 tracking-tighter uppercase" />
+              <section className="mt-10">
+                <h3 className="text-xs font-extrabold text-zinc-500 uppercase tracking-widest mb-4">Workflow Execution</h3>
+                <div className="space-y-3">
+                  {selectedTask.checklist.map(item => (
+                    <div key={item.id} onClick={() => toggleChecklist(selectedTask.id, item.id)} className="flex items-center gap-3 cursor-pointer group p-3 bg-[#141414] hover:bg-white/5 border border-zinc-800 hover:border-white rounded-2xl transition-all">
+                      {item.completed ? <CheckCircle2 className="text-white" size={20} /> : <Circle className="text-zinc-700" size={20} />}
+                      <span className={`${item.completed ? 'text-zinc-600 line-through' : 'text-zinc-300'} font-bold uppercase text-sm`}>{item.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+            <div className="w-full md:w-80 bg-[#080808] p-8 flex flex-col gap-6">
+              <button className="w-full py-4 bg-white hover:bg-zinc-200 text-black font-extrabold rounded-2xl shadow-xl transition-all uppercase tracking-widest flex items-center justify-center gap-2">
+                 Push To Hub <Share2 size={18}/>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {aiHooks.length > 0 && (
+        <div className="fixed bottom-10 right-10 w-96 bg-[#0d0d0d] border-2 border-white/20 rounded-3xl shadow-2xl z-[100] overflow-hidden animate-in slide-in-from-right-10">
+          <div className="p-6 bg-white flex items-center justify-between text-black">
+            <h3 className="font-extrabold uppercase tracking-tighter flex items-center gap-2"><Sparkles size={18}/> Viral Architecture</h3>
+            <button onClick={() => setAiHooks([])} className="hover:bg-black/10 rounded-full p-1"><X size={18}/></button>
+          </div>
+          <div className="p-6 space-y-4">
+             {aiHooks.map((hook, i) => (
+               <div key={i} className="p-4 bg-zinc-900 border border-zinc-800 rounded-2xl text-sm text-zinc-300 leading-relaxed hover:border-white transition-all cursor-copy font-semibold">
+                  <span className="text-white font-extrabold mr-2 tracking-widest">STRIKE_0{i+1}</span> {hook}
+               </div>
+             ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const NavItem = ({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) => (
+  <button onClick={onClick} className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${active ? 'bg-white text-black' : 'text-zinc-500 hover:bg-zinc-900'}`}>
+    {icon}
+    <span className="hidden md:block font-extrabold uppercase text-xs tracking-widest">{label}</span>
+  </button>
+);
+
+const StatCard = ({ label, value }: { label: string, value: string }) => (
+  <div className="bg-[#0d0d0d] border border-zinc-800 px-6 py-4 rounded-2xl min-w-[140px]">
+    <p className="text-[10px] text-zinc-600 font-extrabold uppercase tracking-[0.2em] mb-1">{label}</p>
+    <p className="text-2xl font-mono text-white font-extrabold">{value}</p>
+  </div>
+);
+
+const InsightMetric = ({ icon, label, value, change }: { icon: React.ReactNode, label: string, value: string, change: string }) => (
+  <div className="bg-[#0d0d0d] border border-zinc-800 p-6 rounded-3xl shadow-lg hover:border-white transition-all group">
+    <div className="flex items-center justify-between mb-4">
+      <div className="p-2 bg-zinc-900 border border-zinc-800 rounded-lg group-hover:bg-white group-hover:text-black transition-all">{icon}</div>
+      <span className="text-[10px] font-extrabold text-white bg-white/10 px-2 py-1 rounded-full">{change}</span>
+    </div>
+    <p className="text-[10px] text-zinc-500 font-extrabold uppercase tracking-widest mb-1">{label}</p>
+    <p className="text-2xl font-mono text-white font-extrabold tracking-tight">{value}</p>
+  </div>
+);
+
+export default App;
+
